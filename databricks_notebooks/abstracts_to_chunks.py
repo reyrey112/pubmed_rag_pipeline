@@ -15,14 +15,9 @@ def create_chunks(
     abstract_table: str,
     chunks_table: str,
 ):
-    print("Start Spark")
-    spark = DatabricksSession.builder.remote(
-        host=f"{os.environ.get("DATABRICKS_HOST")}",
-        access_token=f"{os.environ.get("DATABRICKS_TOKEN")}",
-    ).getOrCreate()
     # Read raw abstracts from Delta Lake
     print("Read Abstracts from Table")
-    df_abstracts = spark.table("rag_pipeline.bronze.abstracts")
+    df_abstracts = spark.table(f"{abstract_table}")
     # Define splitter
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=250, chunk_overlap=100, separators=["\n\n", "\n", ". ", " ", ""]
