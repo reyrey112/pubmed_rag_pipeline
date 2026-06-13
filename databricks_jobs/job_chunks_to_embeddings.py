@@ -7,7 +7,7 @@ w = WorkspaceClient()
 
 def create_job():
     job = w.jobs.create(
-        name="TEST_chunks_to_embeddings_pipeline",
+        name="chunks_to_embeddings_pipeline",
         tasks=[
             jobs.Task(
                 task_key="embed_chunks",
@@ -29,30 +29,20 @@ def create_job():
     return job
 
 
-# # Create the job
-# existing_jobs = w.jobs.list(name="chunks_to_embeddings_pipeline")
-# existing = next(iter(existing_jobs), None)
+# Create the job
+existing_jobs = w.jobs.list(name="chunks_to_embeddings_pipeline")
+existing = next(iter(existing_jobs), None)
 
-# if existing:
-#     job_id = existing.job_id
-#     print(f"Using existing job: {job_id}")
-# else:
-job = create_job()
-job_id = job.job_id
-print(f"Created new job: {job_id}")
+if existing:
+    job_id = existing.job_id
+    print(f"Using existing job: {job_id}")
+else:
+    job = create_job()
+    job_id = job.job_id
+    print(f"Created new job: {job_id}")
 
 
 # Run it
 run = w.jobs.run_now(job_id=job_id)
 print(f"Started run ID: {run.run_id}")
 
-# Monitor
-status = w.jobs.get_run(run_id=run.run_id)
-while status.state.life_cycle_state in ("PENDING", "RUNNING"):
-    print(f"Status: {status.state.life_cycle_state}")
-    time.sleep(15)
-    status = w.jobs.get_run(run_id=run.run_id)
-
-print(f"Final result: {status.state.result_state}")
-if status.state.result_state != jobs.RunResultState.SUCCESS:
-    print(f"Error: {status.state.state_message}")

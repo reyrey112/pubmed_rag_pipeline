@@ -11,7 +11,7 @@ def create_job():
             jobs.Task(
                 task_key="create_vector_index",
                 spark_python_task=jobs.SparkPythonTask(
-                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_jobs/embeddings_to_vector.py"
+                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_notebooks/embeddings_to_vector.py"
                 ),
                 environment_key="Serverless",
             )
@@ -45,13 +45,3 @@ else:
 run = w.jobs.run_now(job_id=job_id)
 print(f"Started run ID: {run.run_id}")
 
-# Monitor
-status = w.jobs.get_run(run_id=run.run_id)
-while status.state.life_cycle_state in ("PENDING", "RUNNING"):
-    print(f"Status: {status.state.life_cycle_state}")
-    time.sleep(15)
-    status = w.jobs.get_run(run_id=run.run_id)
-
-print(f"Final result: {status.state.result_state}")
-if status.state.result_state != jobs.RunResultState.SUCCESS:
-    print(f"Error: {status.state.state_message}")
