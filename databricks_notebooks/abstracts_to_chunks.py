@@ -15,6 +15,8 @@ def create_chunks(
     abstract_table: str,
     chunks_table: str,
 ):
+    spark = SparkSession.builder.getOrCreate()
+
     # Read raw abstracts from Delta Lake
     print("Read Abstracts from Table")
     df_abstracts = spark.table(f"{abstract_table}")
@@ -29,7 +31,7 @@ def create_chunks(
 
     # Chunk and explode
     df_chunked = df_abstracts.withColumn(
-        "chunks", chunk_udf("abstract_text")
+        "chunks", chunk_udf("abstract")
     ).withColumn("chunk", explode("chunks"))
 
     # Add chunk metadata
@@ -43,7 +45,7 @@ def create_chunks(
 
     # Write to silver layer in Delta Lake
     spark.sql(
-        f"CREATE SCHEMA IF NOT EXISTS {os.environ.get("DATABRICKS_CATALOG")}.silver"
+        f"CREATE SCHEMA IF NOT EXISTS rag_pipeline.silver"
     )
     df_final.write.format("delta").mode("overwrite").saveAsTable(chunks_table)
     print(f"Created {df_final.count()} chunks from {df_abstracts.count()} papers")
