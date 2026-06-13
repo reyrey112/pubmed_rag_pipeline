@@ -4,29 +4,27 @@ from databricks.sdk.service import jobs, compute
 
 w = WorkspaceClient()
 
-
-def create_job():
-    job = w.jobs.create(
-        name="abstract_chunking_pipeline",
-        tasks=[
-            jobs.Task(
-                task_key="chunk_abstracts",
-                spark_python_task=jobs.SparkPythonTask(
-                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_notebooks/chunking_entry.py"
-                ),
-                environment_key="Serverless",
+job = w.jobs.create(
+    name="chunks_to_embeddings_pipeline",
+    tasks=[
+        jobs.Task(
+            task_key="embed_chunks",
+            spark_python_task=jobs.SparkPythonTask(
+                python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_notebooks/chunks_to_embeddings.py"
+            ),
+            environment_key="Serverless",
+        )
+    ],
+    environments=[
+        jobs.JobEnvironment(
+            environment_key="Serverless",
+            spec=compute.Environment(
+                client="2",
+                dependencies=["sentence-transformers", "torch"]
             )
-        ],
-        environments=[
-            jobs.JobEnvironment(
-                environment_key="Serverless",
-                spec=compute.Environment(
-                    client="2", dependencies=["langchain-text-splitters"]
-                ),
-            )
-        ],
-    )
-    return job
+        )
+    ],
+)
 
 
 # Create the job
