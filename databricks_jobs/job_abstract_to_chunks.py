@@ -1,25 +1,56 @@
+import time
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service import jobs
+from databricks.sdk.service import jobs, compute
 
 w = WorkspaceClient()
 
-job = w.jobs.create(
-    name="abstract_chunking_pipeline",
-    tasks=[
-        jobs.Task(
-            task_key="chunk_abstracts",
-            notebook_task=jobs.NotebookTask(
-                notebook_path="Workspace/Users/reydencdavies@gmail.com/rag_pipeline/test" 
-            ),
-            environment_key="Serverless"
-        )
-    ],
-    environments=[
-        jobs.JobEnvironment(
-            environment_key="Serverless",
-            spec=jobs.EnvironmentSpec(
-                client="1" 
+
+def create_job():
+    job = w.jobs.create(
+        name="abstract_chunking_pipeline",
+        tasks=[
+            jobs.Task(
+                task_key="chunk_abstracts",
+                notebook_task=jobs.NotebookTask(
+                    notebook_path="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_jobs/chunking_entry"
+                ),
+                environment_key="Serverless",
             )
-        )
-    ]
-)
+        ],
+        environments=[
+            jobs.JobEnvironment(
+                environment_key="Serverless", spec=compute.Environment(client="1")
+            )
+        ],
+    )
+    return job
+
+
+# Create the job
+existing_jobs = w.jobs.list(name="abstract_chunking_pipeline")
+existing = next(iter(existing_jobs), None)
+
+if existing:
+    job_id = existing.job_id
+    print(f"Using existing job: {job_id}")
+else:
+    job = create_job()
+    job_id = job.job_id
+    print(f"Created new job: {job_id}")
+
+
+
+# Run it
+run = w.jobs.run_now(job_id=job_id)
+print(f"Started run ID: {run.run_id}")
+
+# Monitor
+status = w.jobs.get_run(run_id=run.run_id)
+while status.state.life_cycle_state in ("PENDING", "RUNNING"):
+    print(f"Status: {status.state.life_cycle_state}")
+    time.sleep(15)
+    status = w.jobs.get_run(run_id=run.run_id)
+
+print(f"Final result: {status.state.result_state}")
+if status.state.result_state != jobs.RunResultState.SUCCESS:
+    print(f"Error: {status.state.state_message}")
