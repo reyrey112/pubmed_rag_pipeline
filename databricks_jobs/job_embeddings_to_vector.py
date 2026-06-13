@@ -6,12 +6,12 @@ w = WorkspaceClient()
 
 def create_job():
     job = w.jobs.create(
-        name="create_vector_index_pipeline",
+        name="vector_embedding_pipeline",
         tasks=[
             jobs.Task(
                 task_key="create_vector_index",
                 spark_python_task=jobs.SparkPythonTask(
-                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_jobs/job_create_vector_index.py"
+                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_jobs/embeddings_to_vector.py"
                 ),
                 environment_key="Serverless",
             )
