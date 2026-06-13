@@ -4,15 +4,14 @@ from databricks.sdk.service import jobs, compute
 
 w = WorkspaceClient()
 
-
 def create_job():
     job = w.jobs.create(
-        name="TEST_chunks_to_embeddings_pipeline",
+        name="create_vector_index_pipeline",
         tasks=[
             jobs.Task(
-                task_key="embed_chunks",
+                task_key="create_vector_index",
                 spark_python_task=jobs.SparkPythonTask(
-                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_notebooks/chunks_to_embeddings.py"
+                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_jobs/job_create_vector_index.py"
                 ),
                 environment_key="Serverless",
             )
@@ -21,25 +20,25 @@ def create_job():
             jobs.JobEnvironment(
                 environment_key="Serverless",
                 spec=compute.Environment(
-                    client="2", dependencies=["sentence-transformers==2.7.0", "torch==2.2.0"]
-                ),
+                    client="2",
+                    dependencies=["databricks-vectorsearch"]
+                )
             )
         ],
     )
     return job
 
+# Create the job
+existing_jobs = w.jobs.list(name="vector_embedding_pipeline")
+existing = next(iter(existing_jobs), None)
 
-# # Create the job
-# existing_jobs = w.jobs.list(name="chunks_to_embeddings_pipeline")
-# existing = next(iter(existing_jobs), None)
-
-# if existing:
-#     job_id = existing.job_id
-#     print(f"Using existing job: {job_id}")
-# else:
-job = create_job()
-job_id = job.job_id
-print(f"Created new job: {job_id}")
+if existing:
+    job_id = existing.job_id
+    print(f"Using existing job: {job_id}")
+else:
+    job = create_job()
+    job_id = job.job_id
+    print(f"Created new job: {job_id}")
 
 
 # Run it
