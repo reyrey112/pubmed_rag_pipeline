@@ -11,15 +11,18 @@ def create_job():
         tasks=[
             jobs.Task(
                 task_key="chunk_abstracts",
-                notebook_task=jobs.NotebookTask(
-                    notebook_path="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_jobs/chunking_entry"
+                spark_python_task=jobs.SparkPythonTask(
+                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_notebooks/chunking_entry.py"
                 ),
                 environment_key="Serverless",
             )
         ],
         environments=[
             jobs.JobEnvironment(
-                environment_key="Serverless", spec=compute.Environment(client="1")
+                environment_key="Serverless",
+                spec=compute.Environment(
+                    client="2", dependencies=["langchain-text-splitters"]
+                ),
             )
         ],
     )
@@ -27,19 +30,20 @@ def create_job():
 
 
 # Create the job
-existing_jobs = w.jobs.list(name="abstract_chunking_pipeline")
-existing = next(iter(existing_jobs), None)
+# existing_jobs = w.jobs.list(name="abstract_chunking_pipeline")
+# existing = next(iter(existing_jobs), None)
 
-if existing:
-    job_id = existing.job_id
-    print(f"Using existing job: {job_id}")
-else:
-    job = create_job()
-    job_id = job.job_id
-    print(f"Created new job: {job_id}")
+# if existing:
+#     job_id = existing.job_id
+#     print(f"Using existing job: {job_id}")
+# else:
+#     job = create_job()
+#     job_id = job.job_id
+#     print(f"Created new job: {job_id}")
 
-
-
+job = create_job()
+job_id = job.job_id
+print(f"Created new job: {job_id}")
 # Run it
 run = w.jobs.run_now(job_id=job_id)
 print(f"Started run ID: {run.run_id}")

@@ -4,11 +4,6 @@ from pyspark.sql.window import Window
 from pyspark.sql.types import ArrayType, StringType
 import pandas as pd
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from dotenv import load_dotenv
-import os
-from delta import configure_spark_with_delta_pip
-
-load_dotenv()
 
 
 def create_chunks(
