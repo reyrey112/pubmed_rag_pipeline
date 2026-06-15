@@ -1,15 +1,18 @@
 import pandas as pd
 import json
-import os
+import os, getpass
 import argparse
 import mlflow
 from pyspark.sql import SparkSession
 
 spark = SparkSession.builder.getOrCreate()
 
-os.environ["HF_HOME"] = "/tmp/hf_cache"
-os.environ["TRANSFORMERS_CACHE"] = "/tmp/hf_cache"
-os.environ["SENTENCE_TRANSFORMERS_HOME"] = "/tmp/hf_cache"
+# avoid lock from trying to access the same file
+cache_dir = f"/tmp/hf_cache_{getpass.getuser()}"
+
+os.environ["HF_HOME"] = cache_dir
+os.environ["TRANSFORMERS_CACHE"] = cache_dir
+os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_dir
 
 EVAL_TABLE = "rag_pipeline.silver.eval_questions"
 MLFLOW_EXPERIMENT = "/Users/reydencdavies@gmail.com/generation_model_evaluation"
@@ -20,12 +23,15 @@ GEN_MODELS = [
 ]
 
 
+
+
+
 def load_eval_data(sample_size=20):
     df = spark.table(EVAL_TABLE).select("question", "source_chunk").toPandas()
     return df.sample(n=min(sample_size, len(df)), random_state=42)
 
 
-def generate_answer(question, context, generator):
+def generate_answer(question, context, model, tokenizer):
     prompt = f"""Answer the question based on the context below.
 
 Context:
@@ -34,10 +40,14 @@ Context:
 Question: {question}
 Answer:"""
 
-    result = generator(prompt, max_new_tokens=150)
-    full_text = result[0]["generated_text"]
-    # text-generation models echo the prompt - strip it
-    return full_text.replace(prompt, "").strip()
+    # Encode the text into token IDs
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+
+    # Generate the output sequence
+    outputs = model.generate(**inputs, max_new_tokens=150)
+
+    # Decode only the newly generated text (Seq2Seq naturally excludes the prompt)
+    return tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
 
 
 def judge_answer(question, context, answer, client):
@@ -56,30 +66,56 @@ Criteria:
 
 JSON format: {{"faithfulness": X, "relevance": X, "conciseness": X}}"""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=100,
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    text = response.content[0].text.strip()
-    # strip markdown code fences if present
-    text = text.replace("```json", "").replace("```", "").strip()
+    # Relax safety settings to prevent biomedical paper text (PubMed/pmid) from triggering false positives
+    safety_settings = [
+        types.SafetySetting(
+            category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+        ),
+        types.SafetySetting(
+            category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+        ),
+        types.SafetySetting(
+            category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+        ),
+        types.SafetySetting(
+            category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+        ),
+    ]
 
     try:
+        response: types.GenerateContentResponse
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                max_output_tokens=150,
-                # Force the model to think and behave purely as a JSON engine
+                max_output_tokens=1000,
+                response_mime_type="application/json",
+                safety_settings=safety_settings,
                 system_instruction="You are a strict LLM evaluation judge. Respond with ONLY a valid raw JSON object, no markdown code fences, and no other text.",
             ),
         )
 
+        # Verify if the response text is empty (usually means model was blocked or failed silently)
+        if not response.text or not response.text.strip():
+            # Attempt to check if safety filters blocked it
+            if response.candidates and response.candidates[0].finish_reason:
+                print(
+                    f"  [Warning] Model returned empty. Finish reason: {response.candidates[0].finish_reason}"
+                )
+            else:
+                print(
+                    "  [Warning] Model returned empty response with no obvious reason."
+                )
+            return {"faithfulness": None, "relevance": None, "conciseness": None}
+
         text = response.text.strip()
-        # strip markdown code fences just in case
-        text = text.replace("```json", "").replace("```", "").strip()
+        print(f"Finish reason: {response.candidates[0].finish_reason}")
+        print(f"Clean Text: {text}")
+
         return json.loads(text)
 
     except (json.JSONDecodeError, Exception) as e:
@@ -88,7 +124,7 @@ JSON format: {{"faithfulness": X, "relevance": X, "conciseness": X}}"""
 
 
 def run_evaluation(sample_size=20, gen_models=None):
-    from transformers import pipeline
+    from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
     from google import genai
 
     gen_models = gen_models or GEN_MODELS
@@ -109,7 +145,9 @@ def run_evaluation(sample_size=20, gen_models=None):
             mlflow.log_param("model_name", model_name)
             mlflow.log_param("sample_size", len(df_eval))
 
-            generator = pipeline("text2text-generation", model=model_name)
+            # --- Explicitly load model & tokenizer instead of using the deleted pipeline ---
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
             scores = {"faithfulness": [], "relevance": [], "conciseness": []}
 
@@ -117,7 +155,7 @@ def run_evaluation(sample_size=20, gen_models=None):
                 question = row["question"]
                 context = row["source_chunk"]
 
-                answer = generate_answer(question, context, generator)
+                answer = generate_answer(question, context, model, tokenizer)
                 judgment = judge_answer(question, context, answer, client)
 
                 for key in scores:
@@ -134,6 +172,15 @@ def run_evaluation(sample_size=20, gen_models=None):
                 f"avg_{key}": sum(vals) / len(vals) if vals else None
                 for key, vals in scores.items()
             }
+
+            try:
+                avg_scores["composite_score"] = sum(
+                    v for v in avg_scores.values() if v is not None
+                ) / len([v for v in avg_scores.values() if v is not None])
+
+            except ZeroDivisionError as e:
+                avg_scores["composite_score"] = 0
+
             mlflow.log_metrics({k: v for k, v in avg_scores.items() if v is not None})
 
             all_results.append({"model": model_name, **avg_scores})
@@ -145,11 +192,14 @@ def run_evaluation(sample_size=20, gen_models=None):
 
     from pyspark.sql.functions import current_timestamp
 
+    print("Upload to Databricks")
     spark.createDataFrame(df_results).withColumn(
         "evaluated_at", current_timestamp()
     ).write.format("delta").mode("append").saveAsTable(
         "rag_pipeline.silver.generation_eval_results"
     )
+
+    print("Evaluation Complete")
 
     return df_results
 
