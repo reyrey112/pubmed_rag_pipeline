@@ -34,7 +34,7 @@ def generate_eval_set(chunks_table: str, eval_table: str, sample_size: int = 50,
         os.environ["HF_HOME"] = "/tmp/hf_cache"
         from transformers import pipeline
         generator = pipeline("text-generation", model="gpt2")
-        generate_fn = lambda text: generate_question_flan(text, generator)        
+        generate_fn = lambda text: generate_question_cheap(text, generator)        
 
 
     eval_pairs = []
@@ -57,7 +57,7 @@ def generate_eval_set(chunks_table: str, eval_table: str, sample_size: int = 50,
     print(f"Generated {len(eval_pairs)} eval pairs")
     return eval_pairs
 
-def generate_question_flan(chunk_text: str, generator) -> str:
+def generate_question_cheap(chunk_text: str, generator) -> str:
     prompt = f"Generate one specific question that this text answers: {chunk_text[:300]}"
     result = generator(
         prompt,
@@ -87,7 +87,7 @@ def generate_question_gemini(chunk_text: str, client) -> str:
             model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                max_output_tokens=100,
+                max_output_tokens=1000,
                 # Enforce predictable output using system instructions if needed
                 system_instruction="You are a strict evaluation dataset generator. Output only the requested text.",
             ),
