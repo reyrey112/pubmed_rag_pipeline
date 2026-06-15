@@ -54,7 +54,7 @@ def promote_best_model(**context):
         Variable.set("embedding_dimension", str(best_dim))
         Variable.set("embedding_model_hit_rate", str(best_score))
         print(f"Promoted {best_model}")
-        return "trigger_rag_pipeline"
+        return "trigger_embed_and_vector"
     else:
         print("No improvement, keeping current model")
         return "no_action"
