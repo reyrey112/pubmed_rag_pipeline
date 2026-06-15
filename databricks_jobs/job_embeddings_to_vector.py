@@ -4,6 +4,7 @@ from databricks.sdk.service import jobs, compute
 
 w = WorkspaceClient()
 
+
 def create_job():
     job = w.jobs.create(
         name="vector_embedding_pipeline",
@@ -11,7 +12,10 @@ def create_job():
             jobs.Task(
                 task_key="create_vector_index",
                 spark_python_task=jobs.SparkPythonTask(
-                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_notebooks/embeddings_to_vector.py"
+                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_notebooks/embeddings_to_vector.py",
+                    
+                    #defaults for isolated testing, get overidden at runtime by airflow                    
+                    parameters=["--embedding_dim", "384"],
                 ),
                 environment_key="Serverless",
             )
@@ -20,13 +24,13 @@ def create_job():
             jobs.JobEnvironment(
                 environment_key="Serverless",
                 spec=compute.Environment(
-                    client="2",
-                    dependencies=["databricks-vectorsearch"]
-                )
+                    client="2", dependencies=["databricks-vectorsearch"]
+                ),
             )
         ],
     )
     return job
+
 
 # Create the job
 existing_jobs = w.jobs.list(name="vector_embedding_pipeline")
@@ -44,4 +48,3 @@ else:
 # Run it
 run = w.jobs.run_now(job_id=job_id)
 print(f"Started run ID: {run.run_id}")
-
