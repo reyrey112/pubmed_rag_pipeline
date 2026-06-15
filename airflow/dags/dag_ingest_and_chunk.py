@@ -14,7 +14,7 @@ default_args = {
 }
 
 with DAG(
-    dag_id="rag_pipeline",
+    dag_id="ingest_and_chunk",
     default_args=default_args,
     schedule="@weekly",
     start_date=datetime(2026, 6, 13),
@@ -34,16 +34,4 @@ with DAG(
         job_id=get_job_id("abstract_chunking_pipeline"),
     )
 
-    embed_chunks = DatabricksRunNowOperator(
-        task_id="embed_chunks",
-        databricks_conn_id="databricks_default",
-        job_id=get_job_id("chunks_to_embeddings_pipeline"),
-    )
-
-    create_vector_index = DatabricksRunNowOperator(
-        task_id="create_vector_index",
-        databricks_conn_id="databricks_default",
-        job_id=get_job_id("vector_embedding_pipeline"),
-    )
-
-    ingest_pubmed >> chunk_abstracts >> embed_chunks >> create_vector_index
+    ingest_pubmed >> chunk_abstracts
