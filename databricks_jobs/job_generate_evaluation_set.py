@@ -4,6 +4,7 @@ from databricks.sdk.service import jobs, compute
 
 w = WorkspaceClient()
 
+
 def create_job():
     job = w.jobs.create(
         name="generate_evaluation_set_pipeline",
@@ -13,20 +14,20 @@ def create_job():
                 spark_python_task=jobs.SparkPythonTask(
                     python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/model_testing_notebooks/generate_evaluation_set.py"
                 ),
-                environment_key="Serverless"
+                environment_key="Serverless",
             )
         ],
         environments=[
             jobs.JobEnvironment(
                 environment_key="Serverless",
                 spec=compute.Environment(
-                    client="2",
-                    dependencies=["transformers", "torch", "google-genai"]
-                )
+                    client="2", dependencies=["transformers", "torch", "google-genai"]
+                ),
             )
         ],
     )
     return job
+
 
 # Create the job
 existing_jobs = w.jobs.list(name="generate_evaluation_set_pipeline")
