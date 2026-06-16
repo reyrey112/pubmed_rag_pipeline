@@ -10,6 +10,7 @@ import sys
 
 sys.path.append("/home/reyde/rag_pipeline")
 from util.get_job_ids import get_job_id
+from util.production_configurations import update_config
 
 
 def promote_best_generation_model(**context):
@@ -47,6 +48,14 @@ def promote_best_generation_model(**context):
     if best_score > current_score:
         Variable.set("generation_model_name", best_model)
         Variable.set("generation_model_score", str(best_score))
+
+        update_config(
+            {
+                "generation_model_name": best_model,
+            },
+            updated_by="generation_model_evaluation_and_promotion",
+        )
+
         print(f"Promoted {best_model}")
         return "promoted"
     else:

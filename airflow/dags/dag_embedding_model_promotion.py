@@ -12,6 +12,7 @@ import sys
 
 sys.path.append("/home/reyde/rag_pipeline")
 from util.get_job_ids import get_job_id
+from util.production_configurations import update_config
 
 
 def promote_best_model(**context):
@@ -54,6 +55,16 @@ def promote_best_model(**context):
         Variable.set("embedding_dimension", str(best_dim))
         Variable.set("embedding_model_hit_rate", str(best_score))
         print(f"Promoted {best_model}")
+
+        update_config(
+            {
+                "embedding_model_name": best_model,
+                "embedding_model_path": best_path,
+                "embedding_dimension": int(best_dim),
+            },
+            updated_by="embedding_model_evaluation_and_promotion",
+        )
+
         return "trigger_embed_and_vector"
     else:
         print("No improvement, keeping current model")
