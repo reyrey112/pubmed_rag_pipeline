@@ -11,6 +11,7 @@ def get_connection():
         access_token=os.environ["DATABRICKS_TOKEN"],
     )
 
+
 def create_production_table():
     conn = get_connection()
     cursor = conn.cursor()
@@ -56,7 +57,7 @@ def create_production_table():
     finally:
         cursor.close()
         conn.close()
-    
+
 
 def get_latest_config() -> dict:
     conn = get_connection()
@@ -152,3 +153,6 @@ def rollback_to(config_version: int):
         },
         updated_by=f"rollback_to_v{config_version}",
     )
+
+if __name__ == "__main__":
+    create_production_table()
