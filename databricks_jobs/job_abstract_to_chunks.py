@@ -12,7 +12,7 @@ def create_job():
             jobs.Task(
                 task_key="chunk_abstracts",
                 spark_python_task=jobs.SparkPythonTask(
-                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_notebooks/chunking_entry.py"
+                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_notebooks/abstracts_to_chunks.py"
                 ),
                 environment_key="Serverless",
             )

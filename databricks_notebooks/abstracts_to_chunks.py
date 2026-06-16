@@ -44,3 +44,6 @@ def create_chunks(
     )
     df_final.write.format("delta").mode("overwrite").saveAsTable(chunks_table)
     print(f"Created {df_final.count()} chunks from {df_abstracts.count()} papers")
+
+if __name__ == "__main__":
+    create_chunks("rag_pipeline.bronze.abstracts", "rag_pipeline.silver.chunks")
