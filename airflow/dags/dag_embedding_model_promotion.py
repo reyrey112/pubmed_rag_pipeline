@@ -85,7 +85,7 @@ with DAG(
     run_evaluation = DatabricksRunNowOperator(
         task_id="run_embedding_evaluation",
         databricks_conn_id="databricks_default",
-        job_id=get_job_id("embedding_evaluation_pipeline"),
+        job_id=get_job_id("evaluate_embedding_models_pipeline"),
     )
 
     promote = BranchPythonOperator(
