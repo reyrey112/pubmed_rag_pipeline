@@ -45,7 +45,7 @@ def create_production_table():
                     current_timestamp(),
                     'initial_setup',
                     'google/flan-t5-base',
-                    'sentence-transformers/all-MiniLM-L6-v2',
+                    'all-MiniLM-L6-v2',
                     '/Volumes/rag_pipeline/silver/models/all-MiniLM-L6-v2',
                     384
                 )
