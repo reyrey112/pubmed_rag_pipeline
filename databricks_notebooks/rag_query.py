@@ -2,6 +2,9 @@ import os, getpass
 from transformers import pipeline
 from databricks.vector_search.client import VectorSearchClient
 from sentence_transformers import SentenceTransformer
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.getOrCreate()
 
 config = spark.sql("""
     SELECT * FROM rag_pipeline.silver.production_config
@@ -27,7 +30,8 @@ GEN_MODEL_NAME = os.environ.get("GEN_MODEL_NAME", "google/flan-t5-base")
 
 # Load models once at module level
 _embed_model = None
-_generator = None
+_model = None
+_tokenizer = None
 _vsc = None
 
 
@@ -38,11 +42,15 @@ def get_embed_model():
     return _embed_model
 
 
-def get_generator():
-    global _generator
-    if _generator is None:
-        _generator = pipeline("text2text-generation", model=GEN_MODEL_NAME)
-    return _generator
+def get_model_and_tokenizer():
+    """Explicitly loads model and tokenizer to replace legacy text2text-generation pipeline."""
+    global _model, _tokenizer
+    if _model is None or _tokenizer is None:
+        from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+        
+        _tokenizer = AutoTokenizer.from_pretrained(GEN_MODEL_NAME)
+        _model = AutoModelForSeq2SeqLM.from_pretrained(GEN_MODEL_NAME)
+    return _model, _tokenizer
 
 
 def get_vsc():
@@ -78,16 +86,22 @@ Context:
 Question: {query}
 Answer:"""
 
-    generator = get_generator()
-    result = generator(prompt, max_length=200)
-    return result[0]["generated_text"]
+    model, tokenizer = get_model_and_tokenizer()
+    
+    # Tensor format mapping to the current active device
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    
+    outputs = model.generate(**inputs, max_new_tokens=200)
+    
+    # clean generated answer tokens 
+    return tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
 
 
 def rag_query(query):
     chunks = retrieve_chunks(query)
     answer = generate_answer(query, chunks)
 
-    sources = list(set([c[1] for c in chunks]))  # title column, deduped
+    sources = list(set([c[1] for c in chunks]))  # pmid metadata column
 
     return {"answer": answer, "sources": sources, "retrieved_chunks": chunks}
 
