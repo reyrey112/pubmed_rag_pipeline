@@ -2,7 +2,6 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import pandas_udf
 from pyspark.sql.types import ArrayType, FloatType
 import pandas as pd
-import os
 import argparse
 
 
