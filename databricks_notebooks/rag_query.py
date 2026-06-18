@@ -1,4 +1,4 @@
-import os
+import os, getpass
 from transformers import pipeline
 from databricks.vector_search.client import VectorSearchClient
 from sentence_transformers import SentenceTransformer
@@ -8,9 +8,14 @@ config = spark.sql("""
     ORDER BY config_version DESC LIMIT 1
 """).collect()[0]
 
-os.environ["HF_HOME"] = "/tmp/hf_cache"
-os.environ["TRANSFORMERS_CACHE"] = "/tmp/hf_cache"
-os.environ["SENTENCE_TRANSFORMERS_HOME"] = "/tmp/hf_cache"
+# avoid lock from trying to access the same file
+cache_dir = f"/tmp/hf_cache_{getpass.getuser()}"
+
+os.environ["HF_HOME"] = cache_dir
+os.environ["TRANSFORMERS_CACHE"] = cache_dir
+os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_dir
+os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
+os.environ["HUGGINGFACE_HUB_VERBOSITY"] = "error"
 
 EMBED_MODEL_PATH = config["embedding_model_path"]
 EMBEDDING_DIM = config["embedding_dimension"]

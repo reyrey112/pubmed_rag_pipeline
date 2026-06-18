@@ -13,6 +13,8 @@ cache_dir = f"/tmp/hf_cache_{getpass.getuser()}"
 os.environ["HF_HOME"] = cache_dir
 os.environ["TRANSFORMERS_CACHE"] = cache_dir
 os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_dir
+os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
+os.environ["HUGGINGFACE_HUB_VERBOSITY"] = "error"
 
 EVAL_TABLE = "rag_pipeline.silver.eval_questions"
 MLFLOW_EXPERIMENT = "/Users/reydencdavies@gmail.com/generation_model_evaluation"

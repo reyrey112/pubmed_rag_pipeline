@@ -1,16 +1,21 @@
 import numpy as np
 import pandas as pd
 import mlflow
-import os
+import os, getpass
 from pyspark.sql import SparkSession
 from datetime import datetime
 from pyspark.sql.functions import current_timestamp
 
 spark = SparkSession.builder.getOrCreate()
 
-os.environ["HF_HOME"] = "/tmp/hf_cache"
-os.environ["TRANSFORMERS_CACHE"] = "/tmp/hf_cache"
-os.environ["SENTENCE_TRANSFORMERS_HOME"] = "/tmp/hf_cache"
+# avoid lock from trying to access the same file
+cache_dir = f"/tmp/hf_cache_{getpass.getuser()}"
+
+os.environ["HF_HOME"] = cache_dir
+os.environ["TRANSFORMERS_CACHE"] = cache_dir
+os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_dir
+os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
+os.environ["HUGGINGFACE_HUB_VERBOSITY"] = "error"
 
 MODELS_TO_EVALUATE = [
     {
@@ -96,7 +101,7 @@ def compute_metrics(
             reciprocal_ranks.append(0)
 
     return {
-        f"hit_rate@{k}": hits / len(df_eval),
+        f"hit_rate_at_{k}": hits / len(df_eval),
         "mrr": sum(reciprocal_ranks) / len(reciprocal_ranks),
         "num_eval_pairs": len(df_eval),
         "k": k,
@@ -132,7 +137,7 @@ def run_evaluation():
                 metrics = compute_metrics(model, df_chunks, df_eval, k=5)
 
                 mlflow.log_metrics(metrics)
-                print(f"  Hit Rate@5: {metrics['hit_rate@5']:.3f}")
+                print(f"  Hit Rate@5: {metrics['hit_rate_at_5']:.3f}")
                 print(f"  MRR:        {metrics['mrr']:.3f}")
 
                 all_results.append(
@@ -151,7 +156,7 @@ def run_evaluation():
     # Summary table
     df_results = pd.DataFrame(all_results)
     print("\n=== RESULTS SUMMARY ===")
-    print(df_results.sort_values("hit_rate@5", ascending=False).to_string(index=False))
+    print(df_results.sort_values("hit_rate_at_5", ascending=False).to_string(index=False))
 
     # Save results to Delta
     spark_df = spark.createDataFrame(df_results).withColumn(
@@ -163,7 +168,7 @@ def run_evaluation():
     )
 
     # Return best model
-    best = df_results.loc[df_results["hit_rate@5"].idxmax(), "model"]
+    best = df_results.loc[df_results["hit_rate_at_5"].idxmax(), "model"]
     print(f"\nBest model: {best}")
     return best
 
