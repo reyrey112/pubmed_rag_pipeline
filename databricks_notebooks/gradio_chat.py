@@ -4,6 +4,17 @@
 # MAGIC This notebook sets up the workspace path, imports the core query logic, and launches a Gradio chat interface.
 
 # COMMAND ----------
+%load_ext autoreload
+%autoreload 2
+# Enables autoreload; learn more at https://docs.databricks.com/en/files/workspace-modules.html#autoreload-for-python-modules
+# To disable autoreload; run %autoreload 0
+
+# COMMAND ----------
+# Cell 0: Environment Setup and Imports
+%pip install -U typing_extensions pydantic pydantic-core gradio transformers torch databricks-vectorsearch sentence-transformers
+dbutils.library.restartPython()
+
+# COMMAND ----------
 # Cell 1: Environment Setup and Imports
 import sys
 sys.path.append("/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_notebooks")
