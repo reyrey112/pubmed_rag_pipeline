@@ -10,7 +10,7 @@ from databricks import sql
 import os, time
 
 
-class conversion:
+class Conversion:
     def __init__(self) -> None:
         self.connect()
         self.catalog = os.environ.get("DATABRICKS_CATALOG")
@@ -24,7 +24,7 @@ class conversion:
 
     def run_sql(self, statement):
         response = self.conn.statement_execution.execute_statement(
-            warehouse_id=f"{os.environ.get("DATABRICKS_WAREHOUSE_ID")}",
+            warehouse_id=os.environ.get("DATABRICKS_WAREHOUSE_ID"),
             statement=statement,
         )
 
@@ -59,12 +59,13 @@ class conversion:
 
             if result.status.state == StatementState.SUCCEEDED:
                 print(f"Done Creating {full_table_name}")
-            
+
             else:
                 print(f"Failed with: {result.status.error}")
-        print("Done creating tables")    
+        print("Done creating tables")
+
 
 if __name__ == "__main__":
-    new_conversion = conversion()
+    new_conversion = Conversion()
 
     new_conversion.volume_to_delta_table()

@@ -17,7 +17,7 @@ def upload_csv_to_volume():
     for filename in os.listdir(csv_dir):
         if filename.endswith(".csv"):
             local_path = os.path.join(csv_dir, filename)
-            dbricks_path = f"{os.environ.get("DATABRICKS_VOLUME_PATH")}/{filename}"
+            dbricks_path = f"{os.environ.get('DATABRICKS_VOLUME_PATH')}/{filename}"
 
             with open(local_path, "rb") as f:
                 db_workspace_conn.files.upload(dbricks_path, f, overwrite=True)
