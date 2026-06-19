@@ -1,10 +1,11 @@
-from databricks import sql
 import os
+from databricks import sql
 
 CONFIG_TABLE = "rag_pipeline.silver.production_config"
 
 
 def get_connection():
+    # Establishes connection using standard environment variables
     return sql.connect(
         server_hostname=os.environ["DATABRICKS_HOST"],
         http_path=os.environ["DATABRICKS_HTTP_PATH"],
@@ -17,30 +18,24 @@ def create_production_table():
     cursor = conn.cursor()
 
     try:
-        cursor.execute("""
-            SELECT COUNT(*) AS table_count
-            FROM information_schema.tables
-            WHERE table_catalog = 'rag_pipeline'
-              AND table_schema   = 'silver'
-              AND table_name     = 'production_config'
-        """)
-        table_already_existed = cursor.fetchone()[0] > 0
-
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS rag_pipeline.silver.production_config (
-                config_version        INT,
-                updated_at            TIMESTAMP,
-                updated_by            STRING,
-                generation_model_name STRING,
-                embedding_model_name  STRING,
-                embedding_model_path  STRING,
-                embedding_dimension   INT
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS {CONFIG_TABLE} (
+                config_version         INT,
+                updated_at             TIMESTAMP,
+                updated_by             STRING,
+                generation_model_name  STRING,
+                embedding_model_name   STRING,
+                embedding_model_path   STRING,
+                embedding_dimension    INT
             )
         """)
 
-        if not table_already_existed:
-            cursor.execute("""
-                INSERT INTO rag_pipeline.silver.production_config VALUES (
+        cursor.execute(f"SELECT COUNT(*) FROM {CONFIG_TABLE}")
+        row_count = cursor.fetchone()[0]
+
+        if row_count == 0:
+            cursor.execute(f"""
+                INSERT INTO {CONFIG_TABLE} VALUES (
                     1,
                     current_timestamp(),
                     'initial_setup',
@@ -50,9 +45,13 @@ def create_production_table():
                     384
                 )
             """)
-            print("Table created and seeded with initial config.")
+            print(f"Table '{CONFIG_TABLE}' successfully created/initialized and seeded with default values.")
         else:
-            print("Table already exists — skipping seed insert.")
+            print(f"Table '{CONFIG_TABLE}' already contains {row_count} configuration row(s). skipping seed.")
+
+    except Exception as e:
+        print(f"An error occurred during table setup: {e}")
+        raise e
 
     finally:
         cursor.close()
