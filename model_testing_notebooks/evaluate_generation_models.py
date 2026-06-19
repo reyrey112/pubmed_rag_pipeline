@@ -117,6 +117,8 @@ JSON format: {{"faithfulness": X, "relevance": X, "conciseness": X}}"""
         text = response.text.strip()
         print(f"Finish reason: {response.candidates[0].finish_reason}")
         print(f"Clean Text: {text}")
+        print(f"Question: {question}")
+        print(f"Answer {answer}")
 
         return json.loads(text)
 
