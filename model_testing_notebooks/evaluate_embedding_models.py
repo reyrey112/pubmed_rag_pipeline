@@ -19,17 +19,17 @@ os.environ["HUGGINGFACE_HUB_VERBOSITY"] = "error"
 
 MODELS_TO_EVALUATE = [
     {
-        "name": "sentence-transformers/all-MiniLM-L6-v2",
+        "name": "all-MiniLM-L6-v2",
         "path": "/Volumes/rag_pipeline/silver/models/all-MiniLM-L6-v2",
         "dim": 384,
     },
     {
-        "name": "sentence-transformers/all-mpnet-base-v2",
+        "name": "all-mpnet-base-v2",
         "path": "/Volumes/rag_pipeline/silver/models/all-mpnet-base-v2",
         "dim": 768,
     },
     {
-        "name": "allenai/specter2_base",
+        "name": "specter2_base",
         "path": "/Volumes/rag_pipeline/silver/models/specter2_base",
         "dim": 768,
     },
