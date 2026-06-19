@@ -40,7 +40,7 @@ def generate_eval_set(
         os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_dir
         os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
         os.environ["HUGGINGFACE_HUB_VERBOSITY"] = "error"
-        
+
         from transformers import pipeline
 
         generator = pipeline("text-generation", model="gpt2")
@@ -127,6 +127,6 @@ if __name__ == "__main__":
     generate_eval_set(
         chunks_table="rag_pipeline.silver.chunks",
         eval_table="rag_pipeline.silver.eval_questions",
-        sample_size=50,
+        sample_size=100,
         use_gemini=True,
     )
