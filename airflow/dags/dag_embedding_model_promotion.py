@@ -20,9 +20,9 @@ def promote_best_model(**context):
     import os
 
     conn = sql.connect(
-        server_hostname=os.environ["DATABRICKS_HOST"],
-        http_path=os.environ["DATABRICKS_HTTP_PATH"],
-        access_token=os.environ["DATABRICKS_TOKEN"],
+        server_hostname=Variable.get("databricks_host"),
+        http_path=Variable.get("databricks_http_path"),
+        access_token=Variable.get("databricks_token"),
     )
     cursor = conn.cursor()
     cursor.execute("""
