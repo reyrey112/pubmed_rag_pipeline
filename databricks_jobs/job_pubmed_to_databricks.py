@@ -6,12 +6,13 @@ w = WorkspaceClient()
 
 def create_job():
     job = w.jobs.create(
-        name="abstract_chunking_pipeline",
+        name="pubmed_ingestion_pipeline",
         tasks=[
             jobs.Task(
-                task_key="chunk_abstracts",
+                task_key="ingest_abstracts",
                 spark_python_task=jobs.SparkPythonTask(
-                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_notebooks/abstracts_to_chunks.py"
+                    python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/pipelines/pubmed_to_databricks.py",
+                    parameters=["--query", "Lentivirus", "--max-results", "500"],
                 ),
                 environment_key="Serverless",
             )
@@ -20,7 +21,8 @@ def create_job():
             jobs.JobEnvironment(
                 environment_key="Serverless",
                 spec=compute.Environment(
-                    client="2", dependencies=["langchain-text-splitters"]
+                    client="2",
+                    dependencies=["biopython", "pandas"],
                 ),
             )
         ],
@@ -28,8 +30,7 @@ def create_job():
     return job
 
 
-# Create the job
-existing_jobs = w.jobs.list(name="abstract_chunking_pipeline")
+existing_jobs = w.jobs.list(name="pubmed_ingestion_pipeline")
 existing = next(iter(existing_jobs), None)
 
 if existing:
@@ -40,8 +41,5 @@ else:
     job_id = job.job_id
     print(f"Created new job: {job_id}")
 
-
-# Run it
 run = w.jobs.run_now(job_id=job_id)
 print(f"Started run ID: {run.run_id}")
-

@@ -1,11 +1,10 @@
 import sys
+
 sys.path.append("/home/reyde/rag_pipeline")
 
 from airflow import DAG
 from airflow.providers.databricks.operators.databricks import DatabricksRunNowOperator
 from datetime import datetime
-from airflow.providers.standard.operators.python import PythonOperator
-from pipelines.pubmed_to_databricks import run_pipeline
 from util.get_job_ids import get_job_id
 
 default_args = {
@@ -22,10 +21,11 @@ with DAG(
     tags=["rag", "databricks"],
 ) as dag:
 
-    ingest_pubmed = PythonOperator(
+    ingest_pubmed = DatabricksRunNowOperator(
         task_id="ingest_pubmed",
-        python_callable=run_pipeline,
-        op_kwargs={"query": "Lentivirus", "max_results": 500},
+        databricks_conn_id="databricks_default",
+        job_id=get_job_id("pubmed_ingestion_pipeline"),
+        python_params=["--query", "Lentivirus", "--max-results", "500"],
     )
 
     chunk_abstracts = DatabricksRunNowOperator(
