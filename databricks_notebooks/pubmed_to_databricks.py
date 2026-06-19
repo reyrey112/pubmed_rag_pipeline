@@ -8,7 +8,7 @@ from pyspark.sql import SparkSession
 
 spark = SparkSession.builder.getOrCreate()
 
-Entrez.email = os.environ["EMAIL"]
+Entrez.email = dbutils.secrets.get(scope="rag_pipeline", key="EMAIL")
 
 
 class PubSearch:
