@@ -78,7 +78,7 @@ with DAG(
         task_id="run_generation_model_evaluation",
         databricks_conn_id="databricks_default",
         job_id=get_job_id("evaluate_generation_models_pipeline"),
-        python_params=["--sample_size", "20"],
+        python_params=["--sample_size", "50"],
     )
 
     promote = BranchPythonOperator(
