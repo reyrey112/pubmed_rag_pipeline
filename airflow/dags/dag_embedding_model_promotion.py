@@ -26,7 +26,7 @@ def promote_best_model(**context):
     )
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT model, model_path, embedding_dim, `hit_rate@5`
+        SELECT model, model_path, embedding_dim, `hit_rate_at_5`
         FROM rag_pipeline.silver.embedding_eval_results
         ORDER BY evaluated_at DESC
         LIMIT 10
