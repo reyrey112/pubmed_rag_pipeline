@@ -1,4 +1,5 @@
 import os
+import sys
 from databricks import sql
 
 CONFIG_TABLE = "rag_pipeline.silver.production_config"
@@ -13,7 +14,13 @@ def get_connection():
     )
 
 
-def create_production_table():
+def create_production_table() -> bool:
+    """Creates and seeds the config table if it is missing or empty.
+    
+    Returns:
+        bool: True if the table was newly created/seeded (or was empty), 
+              False if it already contained configuration rows.
+    """
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -46,8 +53,10 @@ def create_production_table():
                 )
             """)
             print(f"Table '{CONFIG_TABLE}' successfully created/initialized and seeded with default values.")
+            return True
         else:
             print(f"Table '{CONFIG_TABLE}' already contains {row_count} configuration row(s). skipping seed.")
+            return False
 
     except Exception as e:
         print(f"An error occurred during table setup: {e}")
@@ -154,4 +163,14 @@ def rollback_to(config_version: int):
     )
 
 if __name__ == "__main__":
-    create_production_table()
+    try:
+        was_seeded = create_production_table()
+        if was_seeded:
+            print("Table didn't exist or was empty, successfully seeded")
+            sys.exit(0)
+        else:
+            print("Table already existed with data")
+            sys.exit(3)
+    except Exception as err:
+        print(f"Fatal error: {err}")
+        sys.exit(1)
