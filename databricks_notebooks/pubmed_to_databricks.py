@@ -124,7 +124,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Fetch PubMed articles and load into Databricks"
     )
-    parser.add_argument("--query", default="Lentivirus", help="PubMed search query")
+    parser.add_argument("--query", default="Viral vectors", help="PubMed search query")
     parser.add_argument(
         "--max-results", type=int, default=500, help="Max number of articles to fetch"
     )

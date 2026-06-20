@@ -25,7 +25,7 @@ with DAG(
         task_id="ingest_pubmed",
         databricks_conn_id="databricks_default",
         job_id=get_job_id("pubmed_ingestion_pipeline"),
-        python_params=["--query", "Lentivirus", "--max-results", "500"],
+        python_params=["--query", "Viral vectors", "--max-results", "500"],
     )
 
     chunk_abstracts = DatabricksRunNowOperator(
