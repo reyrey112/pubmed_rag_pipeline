@@ -2,20 +2,12 @@ import os, getpass, sys
 from databricks.vector_search.client import VectorSearchClient
 from sentence_transformers import SentenceTransformer
 
-# 1. Get the absolute path of the folder containing rag_query.py (databricks_notebooks)
 current_dir = os.path.dirname(os.path.abspath(__file__))
-
-# 2. Move up one level to the 'rag_pipeline' root directory
 repo_root = os.path.abspath(os.path.join(current_dir, ".."))
-
-# 3. Path to the targeted util folder
 util_path = os.path.join(repo_root, "airflow", "dags", "util")
-
-# 4. Inject it into Python's search path
 if util_path not in sys.path:
     sys.path.append(util_path)
 
-# 5. Import your module cleanly
 from conversation_history import enrich_query
 
 from databricks import sql
@@ -155,21 +147,47 @@ def rag_query(query: str, history: list[dict] = None) -> dict:
         query_used      — enriched query sent to retrieval (for history writer)
         chunk_ids       — list of chunk_ids retrieved (for history writer)
     """
+    max_iterations = 3
+    retrieved_chunks = []
+    query = enrich_query(query, history or [])
 
-    query_used = enrich_query(query, history or [])
-    chunks = retrieve_chunks(query_used)
-    answer = generate_answer(query_used, chunks)
-    sources = list(set([c[1] for c in chunks]))
-    chunk_ids = [c[0] for c in chunks]
+    for i in range(max_iterations):
+        new_chunks = retrieve_chunks(query)
+        retrieved_chunks += deduplicate(new_chunks)
+        evaluation = assess_sufficiency(query, retrieved_chunks)
+        if evaluation.sufficient:
+            break
+        query = reformulate_query(query, evaluation.missing_aspect)
+
+    answer = generate_answer(query, retrieved_chunks)
+    sources = list(set([c[1] for c in retrieved_chunks]))
+    chunk_ids = [c[0] for c in retrieved_chunks]
 
     return {
         "answer": answer,
         "sources": sources,
-        "retrieved_chunks": chunks,
-        "query_used": query_used,  
+        "retrieved_chunks": retrieved_chunks,
+        "query_used": query,  
         "chunk_ids": chunk_ids,  
     }
 
+def assess_sufficiency(question: str, retrieved_chunks):
+    prompt = f"""Given this question and these retrieved chunks, do you 
+    have enough information to answer confidently? If not, what specific 
+    aspect is missing?
+
+    Question:
+    {question}
+
+    retrieved_chunks:
+    {retrieved_chunks}
+
+"""
+    
+    pass
+
+def reformulate_query():
+    pass
 
 if __name__ == "__main__":
     result = rag_query("What factors reduce viscosity in protein formulations?")
