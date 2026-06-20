@@ -134,8 +134,73 @@ def query_from_history(
     return enrich_query(new_message, history)
 
 
-def write_history(updates: dict):
-    pass
+def write_history(
+    session_id: str,
+    user_message: str,
+    assistant_response: str,
+    query_used: str = None,
+    chunks_retrieved: list = None,
+) -> bool:
+    """
+    Writes a completed turn to the Delta table.
+    Writes one row for user message and one row for assistant response.
+    Both share the same turn_number to keep them paired.
+
+    Returns True on success, False on failure (non-fatal).
+
+    Parameters:
+        session_id         — browser session UUID
+        user_message       — original user message text
+        assistant_response — generated answer text
+        query_used         — enriched query sent to retrieval (optional, for analysis)
+        chunks_retrieved   — list of chunk_ids used in generation (optional, for analysis)
+    """
+    import json
+    from datetime import datetime, timezone
+
+    try:
+        conn = _get_connection()
+        cursor = conn.cursor()
+
+        turn_number = _get_next_turn_number(cursor, session_id)
+        now = datetime.now(timezone.utc).isoformat()
+
+        chunks_json = json.dumps(chunks_retrieved) if chunks_retrieved else None
+
+        # Write user row
+        cursor.execute(f"""
+            INSERT INTO {HISTORY_TABLE}
+            (session_id, turn_number, role, content, query_used, chunks_retrieved, created_at)
+            VALUES (%(session_id)s, %(turn)s, 'user', %(content)s, %(query)s, %(chunks)s, %(ts)s)
+        """, {
+            "session_id": session_id,
+            "turn": turn_number,
+            "content": user_message,
+            "query": query_used,
+            "chunks": chunks_json,
+            "ts": now,
+        })
+
+        # Write assistant row
+        cursor.execute(f"""
+            INSERT INTO {HISTORY_TABLE}
+            (session_id, turn_number, role, content, query_used, chunks_retrieved, created_at)
+            VALUES (%(session_id)s, %(turn)s, 'assistant', %(content)s, NULL, NULL, %(ts)s)
+        """, {
+            "session_id": session_id,
+            "turn": turn_number,
+            "content": assistant_response,
+            "ts": now,
+        })
+
+        cursor.close()
+        conn.close()
+        print(f"History written: session={session_id[:8]}... turn={turn_number}")
+        return True
+
+    except Exception as e:
+        print(f"History write failed (non-fatal): {e}")
+        return False
 
 
 if __name__ == "__main__":
