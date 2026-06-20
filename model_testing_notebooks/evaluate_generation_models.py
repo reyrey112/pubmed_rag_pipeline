@@ -4,6 +4,7 @@ import os, getpass
 import argparse
 import mlflow
 from pyspark.sql import SparkSession
+from google.genai import types
 
 spark = SparkSession.builder.getOrCreate()
 
@@ -20,12 +21,30 @@ EVAL_TABLE = "rag_pipeline.silver.eval_questions"
 MLFLOW_EXPERIMENT = "/Users/reydencdavies@gmail.com/generation_model_evaluation"
 
 GEN_MODELS = [
-    "google/flan-t5-base",
-    "google/flan-t5-large",
+    ("google/flan-t5-base", "ST"),
+    ("google/flan-t5-large", "ST"),
+    ("gemini-2.5-flash", "GEN"),
 ]
 
-
-
+# Relax safety settings to prevent biomedical paper text (PubMed/pmid) from triggering false positives
+SAFETY_SETTINGS = [
+    types.SafetySetting(
+        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+    ),
+    types.SafetySetting(
+        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+    ),
+    types.SafetySetting(
+        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+    ),
+    types.SafetySetting(
+        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+    ),
+]
 
 
 def load_eval_data(sample_size=20):
@@ -33,7 +52,7 @@ def load_eval_data(sample_size=20):
     return df.sample(n=min(sample_size, len(df)), random_state=42)
 
 
-def generate_answer(question, context, model, tokenizer):
+def generate_answer_st(question, context, model, tokenizer):
     prompt = f"""Answer the question based on the context below.
 
 Context:
@@ -43,17 +62,40 @@ Question: {question}
 Answer:"""
 
     # Encode the text into token IDs
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    inputs = tokenizer(prompt, return_tensors="pt").to(model[0].device)
 
     # Generate the output sequence
-    outputs = model.generate(**inputs, max_new_tokens=150)
+    outputs = model[0].generate(**inputs, max_new_tokens=150)
 
     # Decode only the newly generated text (Seq2Seq naturally excludes the prompt)
     return tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
 
 
+def generate_answer_gen(question, context, model, client):
+    prompt = f"""Answer the question based on the context below.
+
+Context:
+{context}
+
+Question: {question}
+Answer:"""
+
+    response: types.GenerateContentResponse
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            max_output_tokens=1000,
+            response_mime_type="application/json",
+            safety_settings=SAFETY_SETTINGS,
+            # system_instruction="",
+        ),
+    )
+    answer = response.text.strip()
+    return answer
+
+
 def judge_answer(question, context, answer, client):
-    from google.genai import types
 
     prompt = f"""Rate this answer on a scale of 1-5 for each criterion. Respond with ONLY a JSON object, no other text.
 
@@ -68,26 +110,6 @@ Criteria:
 
 JSON format: {{"faithfulness": X, "relevance": X, "conciseness": X}}"""
 
-    # Relax safety settings to prevent biomedical paper text (PubMed/pmid) from triggering false positives
-    safety_settings = [
-        types.SafetySetting(
-            category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-            threshold=types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-        types.SafetySetting(
-            category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-            threshold=types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-        types.SafetySetting(
-            category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-            threshold=types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-        types.SafetySetting(
-            category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-            threshold=types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-    ]
-
     try:
         response: types.GenerateContentResponse
         response = client.models.generate_content(
@@ -96,7 +118,7 @@ JSON format: {{"faithfulness": X, "relevance": X, "conciseness": X}}"""
             config=types.GenerateContentConfig(
                 max_output_tokens=1000,
                 response_mime_type="application/json",
-                safety_settings=safety_settings,
+                safety_settings=SAFETY_SETTINGS,
                 system_instruction="You are a strict LLM evaluation judge. Respond with ONLY a valid raw JSON object, no markdown code fences, and no other text.",
             ),
         )
@@ -142,16 +164,20 @@ def run_evaluation(sample_size=20, gen_models=None):
     mlflow.set_experiment(MLFLOW_EXPERIMENT)
     all_results = []
 
-    for model_name in gen_models:
+    for model_pair in gen_models:
+        model_name = model_pair[0]
+        model_type = model_pair[1]
+
         print(f"\nEvaluating: {model_name}")
 
         with mlflow.start_run(run_name=model_name.split("/")[-1]):
             mlflow.log_param("model_name", model_name)
             mlflow.log_param("sample_size", len(df_eval))
 
-            # --- Explicitly load model & tokenizer instead of using the deleted pipeline ---
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
-            model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+            if model_type == "ST":
+                # Explicitly load model & tokenizer
+                tokenizer = AutoTokenizer.from_pretrained(model_name)
+                model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
             scores = {"faithfulness": [], "relevance": [], "conciseness": []}
 
@@ -159,7 +185,11 @@ def run_evaluation(sample_size=20, gen_models=None):
                 question = row["question"]
                 context = row["source_chunk"]
 
-                answer = generate_answer(question, context, model, tokenizer)
+                if model_type == "ST":
+                    answer = generate_answer_st(question, context, model, tokenizer)
+                elif model_type == "GEN":
+                    answer = generate_answer_gen(question, context, model, client)
+
                 judgment = judge_answer(question, context, answer, client)
 
                 for key in scores:
