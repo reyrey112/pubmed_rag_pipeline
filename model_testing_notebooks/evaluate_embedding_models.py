@@ -34,6 +34,9 @@ MODELS_TO_EVALUATE = [
         "dim": 768,
     },
 ]
+
+K_VALUES = [5, 10]
+
 MLFLOW_EXPERIMENT = "/Users/reydencdavies@gmail.com/embedding_model_evaluation"
 
 CHUNKS_TABLE = "rag_pipeline.silver.chunks"
@@ -69,8 +72,18 @@ def embed_texts(model, texts: list, batch_size: int = 32) -> np.ndarray:
 
 
 def compute_metrics(
-    model, df_chunks: pd.DataFrame, df_eval: pd.DataFrame, k: int = 5
+    model,
+    df_chunks: pd.DataFrame,
+    df_eval: pd.DataFrame,
+    k_values: list = K_VALUES,
 ) -> dict:
+    """
+    Computes retrieval metrics at each k in k_values in a single ranking pass.
+
+    Metrics per k:
+      - hit_rate@k   : fraction of queries where the correct chunk appears in top-k.
+      - mrr@k        : mean reciprocal rank, only crediting ranks within top-k.
+    """
 
     print("Embedding Chunks")
     chunk_embeddings = embed_texts(model, df_chunks["chunk"].tolist())
@@ -80,32 +93,43 @@ def compute_metrics(
 
     question_embeddings = embed_texts(model, df_eval["question"].tolist())
 
-    hits = 0
-    reciprocal_ranks = []
+    hits = {k: 0 for k in k_values}
+    reciprocal_ranks = {k: [] for k in k_values}
+    max_k = max(k_values)
+
+    # normalize embeddings once
+    chunk_norms = np.linalg.norm(chunk_embeddings, axis=1, keepdims=True)
+    normed_chunks = chunk_embeddings / np.where(chunk_norms == 0, 1, chunk_norms)
 
     for i, row in df_eval.iterrows():
         q_vec = question_embeddings[i]
         correct_id = row["correct_chunk_id"]
 
-        # Cosine similarity
-        norms = np.linalg.norm(chunk_embeddings, axis=1) * np.linalg.norm(q_vec)
-        similarities = chunk_embeddings @ q_vec / norms
-        top_k_indices = np.argsort(similarities)[::-1][:k]
-        top_k_ids = [chunk_ids[idx] for idx in top_k_indices]
+        # cosine similarity
+        q_norm = np.linalg.norm(q_vec)
+        similarities = normed_chunks @ (q_vec / (q_norm if q_norm else 1))
 
-        if correct_id in top_k_ids:
-            hits += 1
-            rank = top_k_ids.index(correct_id) + 1
-            reciprocal_ranks.append(1 / rank)
-        else:
-            reciprocal_ranks.append(0)
+        top_max_k_indices = np.argsort(similarities)[::-1][:max_k]
+        top_max_k_ids = [chunk_ids[idx] for idx in top_max_k_indices]
 
-    return {
-        f"hit_rate_at_{k}": hits / len(df_eval),
-        "mrr": sum(reciprocal_ranks) / len(reciprocal_ranks),
-        "num_eval_pairs": len(df_eval),
-        "k": k,
-    }
+        for k in k_values:
+            top_k_ids = top_max_k_ids[:k]
+
+            if correct_id in top_k_ids:
+                hits[k] += 1
+                rank = top_k_ids.index(correct_id) + 1
+                reciprocal_ranks[k].append(1.0 / rank)
+            else:
+                reciprocal_ranks[k].append(0.0)
+
+    n = len(df_eval)
+    metrics = {"num_eval_pairs": n}
+
+    for k in k_values:
+        metrics[f"hit_rate_at_{k}"] = hits[k] / n
+        metrics[f"mrr_at_{k}"] = sum(reciprocal_ranks[k]) / n
+
+    return metrics
 
 
 def run_evaluation():
@@ -120,7 +144,6 @@ def run_evaluation():
 
     for model_cfg in MODELS_TO_EVALUATE:
         model_name = model_cfg["name"]
-
         print(f"\nEvaluating: {model_name}")
 
         run_name = (
@@ -131,14 +154,18 @@ def run_evaluation():
             mlflow.log_param("model_name", model_name)
             mlflow.log_param("chunks_table", CHUNKS_TABLE)
             mlflow.log_param("eval_table", EVAL_TABLE)
+            mlflow.log_param("k_values", str(K_VALUES))
 
             try:
                 model = SentenceTransformer(model_name)
-                metrics = compute_metrics(model, df_chunks, df_eval, k=5)
+                metrics = compute_metrics(model, df_chunks, df_eval, k_values=K_VALUES)
 
                 mlflow.log_metrics(metrics)
-                print(f"  Hit Rate@5: {metrics['hit_rate_at_5']:.3f}")
-                print(f"  MRR:        {metrics['mrr']:.3f}")
+
+                for k in K_VALUES:
+                    print(f"  --- k={k} ---")
+                    print(f"  Hit Rate@{k}:  {metrics[f'hit_rate_at_{k}']:.3f}")
+                    print(f"  MRR@{k}:       {metrics[f'mrr_at_{k}']:.3f}")
 
                 all_results.append(
                     {
@@ -153,23 +180,27 @@ def run_evaluation():
                 print(f"  Failed: {e}")
                 mlflow.log_param("error", str(e))
 
-    # Summary table
     df_results = pd.DataFrame(all_results)
-    print("\n=== RESULTS SUMMARY ===")
-    print(df_results.sort_values("hit_rate_at_5", ascending=False).to_string(index=False))
 
-    # Save results to Delta
+    display_cols = ["model"] + [
+        f"{m}_at_{k}" for k in K_VALUES for m in ["hit_rate", "mrr"]
+    ]
+    print("\n=== RESULTS SUMMARY ===")
+    print(
+        df_results[display_cols]
+        .sort_values("hit_rate_at_5", ascending=False)
+        .to_string(index=False)
+    )
+
     spark_df = spark.createDataFrame(df_results).withColumn(
         "evaluated_at", current_timestamp()
     )
-
     spark_df.write.format("delta").mode("append").saveAsTable(
         "rag_pipeline.silver.embedding_eval_results"
     )
 
-    # Return best model
     best = df_results.loc[df_results["hit_rate_at_5"].idxmax(), "model"]
-    print(f"\nBest model: {best}")
+    print(f"\nBest model by Hit Rate@5: {best}")
     return best
 
 
