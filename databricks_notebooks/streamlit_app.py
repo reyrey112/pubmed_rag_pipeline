@@ -1,11 +1,23 @@
 # streamlit_app.py
 from dotenv import load_dotenv
+
 load_dotenv()
 import sys
 import os
 import streamlit as st
+import uuid
 
-from rag_query_sparkless import get_embed_model, get_model_and_tokenizer, get_vsc, rag_query
+from rag_query_sparkless import (
+    get_embed_model,
+    get_model_and_tokenizer,
+    get_vsc,
+    rag_query,
+)
+
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+
+session_id = st.session_state.session_id
 
 # load models prior to start
 @st.cache_resource
@@ -16,14 +28,11 @@ def load_models():
         vsc = get_vsc()
     return embed_model, model, tokenizer, vsc
 
+
 # Triggers on first page load — blocks until complete
 load_models()
 
-st.set_page_config(
-    page_title="Pharma RAG",
-    page_icon="🔬",
-    layout="centered"
-)
+st.set_page_config(page_title="Pharma RAG", page_icon="🔬", layout="centered")
 
 st.title("🔬 Pharma RAG")
 st.caption("Ask questions grounded in biomedical research literature")
@@ -69,7 +78,4 @@ if prompt := st.chat_input("Ask a research question..."):
                 full_response = f"Error: {str(e)}"
                 st.error(full_response)
 
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": full_response
-    })
+    st.session_state.messages.append({"role": "assistant", "content": full_response})
