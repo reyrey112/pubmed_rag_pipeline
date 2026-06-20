@@ -1,9 +1,26 @@
-import os, getpass
+import os, getpass, sys
 from databricks.vector_search.client import VectorSearchClient
 from sentence_transformers import SentenceTransformer
 
+# 1. Get the absolute path of the folder containing rag_query.py (databricks_notebooks)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# 2. Move up one level to the 'rag_pipeline' root directory
+repo_root = os.path.abspath(os.path.join(current_dir, ".."))
+
+# 3. Path to the targeted util folder
+util_path = os.path.join(repo_root, "airflow", "dags", "util")
+
+# 4. Inject it into Python's search path
+if util_path not in sys.path:
+    sys.path.append(util_path)
+
+# 5. Import your module cleanly
+from conversation_history import enrich_query
+
 from databricks import sql
 import os
+
 
 def get_latest_config():
     conn = sql.connect(
@@ -22,13 +39,16 @@ def get_latest_config():
     conn.close()
     return dict(zip(columns, row))
 
+
 _config = None
+
 
 def get_config():
     global _config
     if _config is None:
         _config = get_latest_config()  # SQL connector call, runs once
     return _config
+
 
 config = get_config()
 
@@ -69,7 +89,7 @@ def get_model_and_tokenizer():
     global _model, _tokenizer
     if _model is None or _tokenizer is None:
         from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-        
+
         _tokenizer = AutoTokenizer.from_pretrained(GEN_MODEL_NAME)
         _model = AutoModelForSeq2SeqLM.from_pretrained(GEN_MODEL_NAME)
     return _model, _tokenizer
@@ -109,23 +129,46 @@ Question: {query}
 Answer:"""
 
     model, tokenizer = get_model_and_tokenizer()
-    
+
     # Tensor format mapping to the current active device
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-    
+
     outputs = model.generate(**inputs, max_new_tokens=200)
-    
-    # clean generated answer tokens 
+
+    # clean generated answer tokens
     return tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
 
 
-def rag_query(query):
-    chunks = retrieve_chunks(query)
-    answer = generate_answer(query, chunks)
+def rag_query(query: str, history: list[dict] = None) -> dict:
+    """
+    Main RAG query function.
 
-    sources = list(set([c[1] for c in chunks]))  # pmid metadata column
+    Parameters:
+        query    — raw user message
+        history  — list of { role, content } dicts from conversation history
+                   if None or empty, query is used as-is (no enrichment)
 
-    return {"answer": answer, "sources": sources, "retrieved_chunks": chunks}
+    Returns:
+        answer          — generated answer string
+        sources         — list of source PMIDs
+        retrieved_chunks— full chunk data
+        query_used      — enriched query sent to retrieval (for history writer)
+        chunk_ids       — list of chunk_ids retrieved (for history writer)
+    """
+
+    query_used = enrich_query(query, history or [])
+    chunks = retrieve_chunks(query_used)
+    answer = generate_answer(query_used, chunks)
+    sources = list(set([c[1] for c in chunks]))
+    chunk_ids = [c[0] for c in chunks]
+
+    return {
+        "answer": answer,
+        "sources": sources,
+        "retrieved_chunks": chunks,
+        "query_used": query_used,  
+        "chunk_ids": chunk_ids,  
+    }
 
 
 if __name__ == "__main__":
