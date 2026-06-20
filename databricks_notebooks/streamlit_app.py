@@ -13,6 +13,13 @@ from rag_query_sparkless import (
     get_vsc,
     rag_query,
 )
+current_dir = os.path.dirname(os.path.abspath(__file__))
+repo_root = os.path.abspath(os.path.join(current_dir, ".."))
+util_path = os.path.join(repo_root, "airflow", "dags", "util")
+if util_path not in sys.path:
+    sys.path.append(util_path)
+
+from conversation_history import read_history, write_history
 
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
@@ -57,7 +64,8 @@ if prompt := st.chat_input("Ask a research question..."):
     with st.chat_message("assistant"):
         with st.spinner("Searching literature..."):
             try:
-                result = rag_query(prompt)
+                history = read_history(session_id)
+                result = rag_query(prompt, history)
                 answer = result["answer"]
                 sources = result["sources"]
 
@@ -73,6 +81,8 @@ if prompt := st.chat_input("Ask a research question..."):
                 # Build full response string for history
                 sources_text = "\n".join([f"- {s}" for s in sources])
                 full_response = f"{answer}\n\n**Sources:**\n{sources_text}"
+
+                write_history(session_id, prompt, full_response, result["query_used"], result["chunk_ids"])
 
             except Exception as e:
                 full_response = f"Error: {str(e)}"
