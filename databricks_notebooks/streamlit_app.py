@@ -13,6 +13,7 @@ from rag_query_sparkless import (
     get_vsc,
     rag_query,
 )
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(current_dir, ".."))
 util_path = os.path.join(repo_root, "airflow", "dags", "util")
@@ -25,6 +26,7 @@ if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
 
 session_id = st.session_state.session_id
+
 
 # load models prior to start
 @st.cache_resource
@@ -60,14 +62,17 @@ if prompt := st.chat_input("Ask a research question..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    history = read_history(session_id)
+
     # Generate and show response
     with st.chat_message("assistant"):
         with st.spinner("Searching literature..."):
             try:
-                history = read_history(session_id)
                 result = rag_query(prompt, history)
                 answer = result["answer"]
                 sources = result["sources"]
+                query_used = result["query_used"]
+                chunk_ids = result["chunks_ids"]
 
                 # Render answer
                 st.markdown(answer)
@@ -82,7 +87,13 @@ if prompt := st.chat_input("Ask a research question..."):
                 sources_text = "\n".join([f"- {s}" for s in sources])
                 full_response = f"{answer}\n\n**Sources:**\n{sources_text}"
 
-                write_history(session_id, prompt, full_response, result["query_used"], result["chunk_ids"])
+                write_history(
+                    session_id,
+                    prompt,
+                    full_response,
+                    query_used,
+                    chunk_ids,
+                )
 
             except Exception as e:
                 full_response = f"Error: {str(e)}"
