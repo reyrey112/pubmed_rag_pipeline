@@ -62,10 +62,10 @@ Question: {question}
 Answer:"""
 
     # Encode the text into token IDs
-    inputs = tokenizer(prompt, return_tensors="pt").to(model[0].device)
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
     # Generate the output sequence
-    outputs = model[0].generate(**inputs, max_new_tokens=150)
+    outputs = model.generate(**inputs, max_new_tokens=150)
 
     # Decode only the newly generated text (Seq2Seq naturally excludes the prompt)
     return tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
