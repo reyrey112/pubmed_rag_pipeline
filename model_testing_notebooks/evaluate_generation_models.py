@@ -46,6 +46,15 @@ SAFETY_SETTINGS = [
     ),
 ]
 
+_gemini_client = None
+
+def _get_gemini_client():
+    from google import genai
+    global _gemini_client
+    if _gemini_client is None:
+        api_key = dbutils.secrets.get(scope="rag_pipeline", key="GEMINI_API_KEY")
+        _gemini_client = genai.Client(api_key=api_key)
+    return _gemini_client
 
 def load_eval_data(sample_size=20):
     df = spark.table(EVAL_TABLE).select("question", "source_chunk").toPandas()
@@ -151,13 +160,11 @@ JSON format: {{"faithfulness": X, "relevance": X, "conciseness": X}}"""
 
 def run_evaluation(sample_size=20, gen_models=None):
     from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-    from google import genai
 
     gen_models = gen_models or GEN_MODELS
 
-    api_key = dbutils.secrets.get(scope="rag_pipeline", key="GEMINI_API_KEY")
-    client = genai.Client(api_key=api_key)
-
+    client = _get_gemini_client()
+    
     df_eval = load_eval_data(sample_size)
     print(f"Evaluating on {len(df_eval)} questions")
 
