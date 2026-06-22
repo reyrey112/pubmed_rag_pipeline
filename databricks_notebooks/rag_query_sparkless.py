@@ -9,7 +9,7 @@ if util_path not in sys.path:
     sys.path.append(util_path)
 
 from conversation_history import enrich_query
-
+from iterative_retrieval import iterative_retrieve
 from databricks import sql
 import os
 
@@ -131,63 +131,64 @@ Answer:"""
     return tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
 
 
-def rag_query(query: str, history: list[dict] = None) -> dict:
+def rag_query(
+    query: str,
+    history: list[dict] = None,
+    status_callback=None,
+) -> dict:
     """
-    Main RAG query function.
+    Main RAG query function with iterative retrieval and conversation memory.
 
     Parameters:
-        query    — raw user message
-        history  — list of { role, content } dicts from conversation history
-                   if None or empty, query is used as-is (no enrichment)
+        query            — raw user message
+        history          — conversation history for query enrichment
+        status_callback  — optional callable(message: str) for live UI updates
+                           passed through to iterative_retrieve()
 
     Returns:
-        answer          — generated answer string
-        sources         — list of source PMIDs
-        retrieved_chunks— full chunk data
-        query_used      — enriched query sent to retrieval (for history writer)
-        chunk_ids       — list of chunk_ids retrieved (for history writer)
+        answer           — generated answer string
+        sources          — list of source PMIDs
+        retrieved_chunks — full chunk data from all iterations
+        query_used       — initial enriched query (first iteration)
+        chunk_ids        — all unique chunk IDs retrieved
+        iterations       — how many retrieval loops ran
+        queries_used     — all queries used across iterations
+        sufficient       — whether sufficient context was found
+        final_reasoning  — Claude's reasoning on final sufficiency assessment
     """
-    max_iterations = 3
     retrieved_chunks = []
-    query = enrich_query(query, history or [])
+    query_used = enrich_query(query, history or [])
 
-    for i in range(max_iterations):
-        new_chunks = retrieve_chunks(query)
-        retrieved_chunks += deduplicate(new_chunks)
-        evaluation = assess_sufficiency(query, retrieved_chunks)
-        if evaluation.sufficient:
-            break
-        query = reformulate_query(query, evaluation.missing_aspect)
+    retrieval_result = iterative_retrieve(
+        question=query,
+        initial_query = query_used,
+        retrieve_fn = retrieve_chunks,
+        status_callback=status_callback
+    )
 
-    answer = generate_answer(query, retrieved_chunks)
-    sources = list(set([c[1] for c in retrieved_chunks]))
-    chunk_ids = [c[0] for c in retrieved_chunks]
+    chunks = retrieval_result["chunks"]
+    queries_used = retrieval_result["queries_used"]
+    iterations = retrieval_result["iterations"]
+    sufficient = retrieval_result["sufficient"]
+    final_reasoning = retrieval_result["final_reasoning"]
+
+    answer = generate_answer(query, chunks)
+    
+    sources = list(set([c[1] for c in chunks]))
+    chunk_ids = [c[0] for c in chunks]
 
     return {
         "answer": answer,
         "sources": sources,
-        "retrieved_chunks": retrieved_chunks,
-        "query_used": query,  
-        "chunk_ids": chunk_ids,  
+        "retrieved_chunks": chunks,
+        "query_used": query_used,
+        "chunk_ids": chunk_ids,
+        "iterations": iterations,
+        "queries_used": queries_used,
+        "sufficient": sufficient,
+        "final_reasoning": final_reasoning,
     }
 
-def assess_sufficiency(question: str, retrieved_chunks):
-    prompt = f"""Given this question and these retrieved chunks, do you 
-    have enough information to answer confidently? If not, what specific 
-    aspect is missing?
-
-    Question:
-    {question}
-
-    retrieved_chunks:
-    {retrieved_chunks}
-
-"""
-    
-    pass
-
-def reformulate_query():
-    pass
 
 if __name__ == "__main__":
     result = rag_query("What factors reduce viscosity in protein formulations?")
