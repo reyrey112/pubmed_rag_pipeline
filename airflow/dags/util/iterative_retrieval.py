@@ -99,8 +99,6 @@ def assess_sufficiency(question: str, chunks: list, model=MODEL) -> dict:
     """
 
     from gemini_call import gemini_call
-    from google.genai import errors
-    import time
 
     if not chunks:
         return {
@@ -111,7 +109,10 @@ def assess_sufficiency(question: str, chunks: list, model=MODEL) -> dict:
 
     # Format chunks for the prompt
     chunks_text = "\n\n".join(
-        [f"Chunk {i+1}:\n{c[2][:300]}" for i, c in enumerate(chunks)]
+        [
+            f"Chunk {i+1}:\n{str(c[2])[:300]}"  # explicitly cast to str
+            for i, c in enumerate(chunks)
+        ]
     )
 
     prompt = f"""You are evaluating whether retrieved research paper excerpts provide sufficient context to answer a question.
@@ -137,9 +138,14 @@ Respond with ONLY a JSON object, no other text:
 
     try:
 
-        response = gemini_call(client, model, prompt, MAX_ITERATIONS, SAFETY_SETTINGS)
+        response = gemini_call(
+            client,
+            prompt,
+            response_mime_type="application/json",
+            safety_settings=SAFETY_SETTINGS,
+        )
 
-        text = response.text.strip()
+        text = response.text
 
         start = text.find("{")
         end = text.rfind("}") + 1
@@ -230,7 +236,7 @@ Respond with ONLY the query text, nothing else."""
                 # system_instruction="You are a strict LLM evaluation judge. Respond with ONLY a valid raw JSON object, no markdown code fences, and no other text.",
             ),
         )
-        text = response.text.strip()
+        text = response.text
 
         return text
 
