@@ -1,0 +1,54 @@
+[project]
+name = "rag-pipeline"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+
+# Truly shared — no heavy ML deps here
+dependencies = [
+    "databricks-sql-connector>=4.2.6",
+    "databricks-vectorsearch>=0.75",
+    "databricks-sdk>=0.114.0",
+    "python-dotenv>=1.0.0",
+    "google-genai>=2.8.0",
+    "requests>=2.34.2",
+]
+
+[dependency-groups]
+# FastAPI container only
+api = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "pydantic>=2.0.0",
+    "httpx>=0.28.0",
+    "sentence-transformers>=5.5.1",  # moved here — Streamlit doesn't need it
+]
+
+# Streamlit container only
+frontend = [
+    "streamlit>=1.58.0",
+    "httpx>=0.28.0",
+]
+
+# Data engineering — local only, never in Docker
+data-engineering = [
+    "apache-airflow>=3.2.2",
+    "apache-airflow-providers-databricks>=7.16.0",
+    "biopython>=1.87",
+    "delta-spark>=4.1.0",
+    "langchain>=1.3.7",
+    "langchain-text-splitters>=1.1.2",
+    "pyspark>=4.1.2",
+    "pyarrow>=24.0.0",
+]
+
+# Dev/testing — never in Docker
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+]
+
+# Force CPU-only PyTorch — avoids pulling the 2GB CUDA build
+[tool.uv]
+torch-backend = "cpu"
