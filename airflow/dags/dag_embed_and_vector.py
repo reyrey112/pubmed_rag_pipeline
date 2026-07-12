@@ -1,6 +1,8 @@
-import sys
-sys.path.append("/home/reyde/rag_pipeline")
+import sys, os
+current_dir = os.path.dirname(os.path.abspath(__file__))
 
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
 from airflow import DAG
 from airflow.providers.databricks.operators.databricks import DatabricksRunNowOperator
 from datetime import datetime

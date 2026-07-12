@@ -1,3 +1,4 @@
+import os, sys
 from airflow import DAG
 from airflow.providers.standard.operators.python import (
     BranchPythonOperator,
@@ -8,9 +9,12 @@ from airflow.providers.databricks.operators.databricks import DatabricksRunNowOp
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.models import Variable
 from datetime import datetime
-import sys
 
-sys.path.append("/home/reyde/rag_pipeline")
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
+
 from util.get_job_ids import get_job_id
 from util.production_configurations import update_config
 
