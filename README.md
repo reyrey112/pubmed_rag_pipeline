@@ -52,6 +52,7 @@ All jobs are orchestrated by **Apache Airflow**.
 | Generation models | HuggingFace Transformers (flan-t5) |
 | Experiment tracking | MLflow |
 | Evaluation/judging | Gemini (Google API) |
+| Interactive UI | Streamlit (See rag_powered_webapp repo) |
 | Language | Python |
 
 ---
