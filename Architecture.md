@@ -6,8 +6,8 @@ This document reflects the current repository layout and the implementation that
 
 This project is a PubMed-backed RAG pipeline for biomedical literature retrieval and question answering. The current implementation is centered on Databricks notebooks and Databricks job definitions rather than a separate top-level `pipelines/` package. The main flow is:
 
-1. Ingest PubMed data into Databricks tables.
-2. Chunk abstracts into smaller units.
+1. Rotate through a configured list of PubMed search terms and ingest new results into Databricks tables, skipping articles already ingested and bounding each search to a date window so repeated runs surface newly-indexed literature instead of re-fetching the same results.
+2. Chunk newly-ingested abstracts into smaller units.
 3. Embed chunks with a sentence-transformer model.
 4. Create or sync a Databricks Vector Search index.
 5. Retrieve relevant chunks and generate answers through a query layer.
@@ -33,7 +33,8 @@ rag_pipeline/
 │           ├── get_job_ids.py
 │           ├── interview_state.py
 │           ├── iterative_retrieval.py
-│           └── production_configurations.py
+│           ├── production_configurations.py
+│           └── search_terms.py
 ├── databricks_jobs/
 │   ├── job_abstract_to_chunks.py
 │   ├── job_chunks_to_embeddings.py
@@ -81,12 +82,16 @@ Notes:
 
 ### 1. Ingestion
 - The main ingestion logic is implemented in `databricks_notebooks/pubmed_to_databricks.py`.
-- It uses BioPython Entrez to search and fetch PubMed records, then writes metadata and abstracts to Databricks Delta tables.
+- It uses BioPython Entrez to search and fetch PubMed records, then writes metadata and abstracts to Databricks Delta tables via a `MERGE` keyed on `pmid` (idempotent -- safe to re-run without creating duplicate rows).
 - The corresponding Databricks job definition is `databricks_jobs/job_pubmed_to_databricks.py`.
+- **Search term rotation**: rather than a single hardcoded query, the ingestion job's `--query` parameter is supplied per-run from a rotating list of active search terms managed in `rag_pipeline.silver.search_terms` (see "Search term rotation" below). This lets the pipeline continuously expand coverage across multiple topics on a schedule instead of only ever searching one fixed term.
+- **PMID deduplication**: before fetching article details, searched PMIDs are anti-joined in Spark against a lightweight `rag_pipeline.bronze.pmid_registry` table (just the `pmid` column) to skip PMIDs already ingested. This anti-join runs in Spark rather than collecting the registry to the driver, so lookup cost scales with the cluster rather than driver memory as the registry grows. New PMIDs are added to the registry after each successful ingest.
+- **Date-windowed search / historical backfill**: each search term also tracks a `last_searched_through` watermark date in `search_terms`. Entrez searches are bounded using `datetype=edat` (Entrez/indexing date, not publication date) with `mindate`/`maxdate` derived from that watermark, so repeated runs of the same term pull newly-indexed articles instead of re-fetching the same top-N results from Entrez every time. New terms start backfilling from a configurable start date (default `2020-01-01`) and advance toward the present in fixed-size increments (default 90 days) each time the term comes up in rotation; once the watermark reaches the present, the term naturally behaves like a "fetch only what's new" incremental search going forward.
 
 ### 2. Chunking
 - `databricks_notebooks/abstracts_to_chunks.py` reads the abstract table and applies chunking with `RecursiveCharacterTextSplitter`.
 - Chunk IDs are produced in the format `${pmid}_chunk_${chunk_index}`.
+- Only abstracts for PMIDs not already present in `rag_pipeline.silver.chunks` are chunked (anti-join against existing chunk PMIDs), and new chunks are appended rather than overwriting the table -- so re-running the job doesn't reprocess the full abstract history each time.
 - Output is written to `rag_pipeline.silver.chunks`.
 
 ### 3. Embedding
@@ -143,6 +148,7 @@ Notes:
 ### Airflow helpers
 - `airflow/dags/util/get_job_ids.py`
 - `airflow/dags/util/production_configurations.py`
+- `airflow/dags/util/search_terms.py`
 - `airflow/dags/util/conversation_history.py`
 - `airflow/dags/util/interview_state.py`
 - `airflow/dags/util/iterative_retrieval.py`
@@ -185,7 +191,7 @@ These job names are used by the Airflow DAGs through the helper in `airflow/dags
 The current DAGs are:
 
 - `dag_ingest_and_chunk.py`
-  - Runs ingestion and then the chunking job.
+  - Pulls the next search term (and its date-window watermark) from `search_terms`, runs ingestion with that term/window, marks the term as run (advancing its watermark), then runs the chunking job.
 - `dag_embed_and_vector.py`
   - Runs embedding and vector index creation.
 - `dag_embedding_model_promotion.py`
@@ -203,14 +209,43 @@ The current implementation is expected to work with the following Databricks obj
 
 - `rag_pipeline.bronze.pubmed_meta`
 - `rag_pipeline.bronze.abstracts`
+- `rag_pipeline.bronze.pmid_registry` -- skinny single-column (`pmid`) table used to dedup ingestion across all search terms
 - `rag_pipeline.silver.chunks`
 - `rag_pipeline.silver.embeddings`
 - `rag_pipeline.silver.eval_questions`
 - `rag_pipeline.silver.embedding_eval_results`
 - `rag_pipeline.silver.generation_eval_results`
 - `rag_pipeline.silver.production_config`
+- `rag_pipeline.silver.search_terms` -- rotation state for PubMed search terms (`term`, `active`, `last_run_at`, `run_count`, `last_searched_through`)
 
 The production config table is the authoritative source for model selection in the query layer.
+
+---
+
+## Search term rotation
+
+The ingestion job no longer runs against a single hardcoded search query. Instead, `airflow/dags/util/search_terms.py` manages a Databricks table, `rag_pipeline.silver.search_terms`, with one row per topic:
+
+| column | purpose |
+|---|---|
+| `term` | the PubMed search query text |
+| `active` | whether the term is currently included in the rotation |
+| `last_run_at` | timestamp of the term's most recent ingestion run |
+| `run_count` | number of times the term has been run |
+| `last_searched_through` | date watermark used to bound the Entrez search window (see Ingestion, above) |
+
+Each DAG run picks the active term with the oldest `last_run_at` (unrun terms, with a `NULL` timestamp, are prioritized first), so the rotation is driven by recency rather than a fixed index -- newly added terms are naturally scheduled next, and pausing a term (`active = false`) removes it from rotation without losing its history.
+
+`search_terms.py` exposes a small CLI for managing the rotation without hand-written SQL:
+
+```bash
+python search_terms.py add "Lipid Nanoparticles"      # add a new term to the rotation
+python search_terms.py pause "mRNA Stability"         # temporarily remove a term from rotation
+python search_terms.py resume "mRNA Stability"        # reactivate a paused term
+python search_terms.py                                # create/seed the table (idempotent)
+```
+
+Both the search term rotation and the historical-backfill pace (`BACKFILL_START_DATE`, `BACKFILL_INCREMENT_DAYS`) are defined as constants in `search_terms.py`, with the increment also overridable per-DAG-run via the `backfill_increment_days` Airflow Variable.
 
 ---
 
@@ -240,6 +275,8 @@ These values are expected to be present in the local `.env` file or in the runti
 - `embedding_model_hit_rate`
 - `generation_model_name`
 - `generation_model_score`
+- `ingest_and_chunk_schedule` -- overrides the `ingest_and_chunk` DAG's schedule (default `@weekly`)
+- `backfill_increment_days` -- overrides how many days each term's search window advances per run during historical backfill (default `90`)
 
 ---
 
@@ -257,12 +294,15 @@ The repository currently follows these conventions:
 - Vector Search endpoint: `rag_pipeline_endpoint`
 - Vector Search index: `rag_pipeline.silver.chunk_index`
 - Chunk IDs: `${pmid}_chunk_${chunk_index}`
+- PMID dedup registry table: `rag_pipeline.bronze.pmid_registry`
+- Search term rotation table: `rag_pipeline.silver.search_terms`
 
 ---
 
 ## Where to look first
 
 - Main ingestion notebook: `databricks_notebooks/pubmed_to_databricks.py`
+- Search term rotation / backfill logic: `airflow/dags/util/search_terms.py`
 - Main chunking notebook: `databricks_notebooks/abstracts_to_chunks.py`
 - Main embedding notebook: `databricks_notebooks/chunks_to_embeddings.py`
 - Main query layer: `databricks_notebooks/rag_query.py`
@@ -289,6 +329,8 @@ The repository is intentionally notebook-first and job-first, so the fastest way
 - The embedding dimension must remain consistent between the model, the embedding table, and the Vector Search index.
 - The Databricks job names used by Airflow must match the job names created in the workspace.
 - The model artifact path under `/Volumes/rag_pipeline/silver/models/...` must exist and be accessible.
+- `rag_pipeline.silver.search_terms` must be seeded (via `search_terms.py`) before the `ingest_and_chunk` DAG can run, since it requires at least one active term to select from.
+- PMID dedup relies on `rag_pipeline.bronze.pmid_registry` being kept in sync with `bronze.pubmed_meta` / `bronze.abstracts` -- both are updated together at the end of each successful ingestion run.
 
 ### Common gotchas
 
@@ -296,6 +338,8 @@ The repository is intentionally notebook-first and job-first, so the fastest way
 - `dbt/` exists but is not yet populated with implementation files in this checkout.
 - The Streamlit app uses the Spark-less query path, while the notebook-based RAG flow uses the full Spark-enabled query layer.
 - The query layer should read the current model selection from production config rather than relying on hard-coded defaults.
+- Ingestion searches are bounded by Entrez indexing date (`edat`), not publication date, so a paper published years ago can still show up as "new" if PubMed only recently indexed/updated it.
+- For very high-volume search terms, a fixed `--max-results` cap combined with a wide date window can silently truncate results within that window; narrowing `BACKFILL_INCREMENT_DAYS` or raising `--max-results` for such terms avoids missing records.
 
 ### Practical local run order
 

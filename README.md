@@ -16,13 +16,15 @@ With the large amounts of data in R&D situations, its often hard to find exact p
 ## Architecture
 
 ```
+search_terms rotation table (Airflow)
+    ↓  (next term + date window)
 PubMed API
     ↓
-Python Ingestion (local, Airflow PythonOperator)
+Python Ingestion (local, Airflow PythonOperator)  --  dedup against pmid_registry, date-bounded search
     ↓
-Databricks Unity Catalog — bronze.abstracts
+Databricks Unity Catalog — bronze.abstracts, bronze.pmid_registry
     ↓
-Spark + LangChain chunking (Databricks Jobs)
+Spark + LangChain chunking (Databricks Jobs)  --  only new pmids
     ↓
 Databricks Unity Catalog — silver.chunks
     ↓
@@ -52,12 +54,19 @@ All jobs are orchestrated by **Apache Airflow**.
 | Generation models | HuggingFace Transformers (flan-t5) |
 | Experiment tracking | MLflow |
 | Evaluation/judging | Gemini (Google API) |
-| Interactive UI | Streamlit (See rag_powered_webapp repo) |
+| Interactive UI | Gradio |
 | Language | Python |
 
 ---
 
 ## Key Features
+
+### Rotating, Deduplicated Ingestion
+Rather than searching a single hardcoded PubMed query forever, ingestion rotates through a configurable list of active search terms tracked in a `search_terms` Delta table (oldest-run term goes next), so the pipeline continuously expands topic coverage on a schedule.
+
+- **PMID deduplication** — a lightweight `pmid_registry` table (Spark anti-join, not a driver-side collect) ensures articles already ingested are never re-fetched or re-processed, regardless of which search term surfaces them.
+- **Date-windowed backfill** — each term tracks a `last_searched_through` watermark and searches are bounded by PubMed's Entrez indexing date (`edat`). New terms backfill from a configurable start date (default 2020-01-01) forward in fixed increments (default 90 days/run) until caught up to the present, at which point they naturally behave as incremental "what's new" searches. Both the DAG schedule and the backfill increment are adjustable via Airflow Variables without a redeploy, so backfilling can be run on a tighter cadence and relaxed once caught up.
+- **Idempotent writes** — ingestion and chunking both write via `MERGE`/anti-join + append rather than blind overwrite, so re-running any stage is safe and never produces duplicate rows.
 
 ### Medallion Architecture
 Data flows through medallion architecture, with gold being reserved for future processing and modelling using dbt models for staging, intermediate joins, and analysis-ready marts.
@@ -87,7 +96,7 @@ config_version | updated_at       | updated_by           | gen_model     | emb_m
 ### Airflow DAGs
 Four DAGs coordinate the full system:
 
-- **`ingest_and_chunk`** — weekly ingestion → chunking
+- **`ingest_and_chunk`** — pulls the next search term and date window from the rotation, ingests (deduplicated) → chunks (new abstracts only)
 - **`embed_and_vector`** —  embedding → vector index sync
 - **`embedding_model_promotion`** — embedding model evaluation + automated promotion
 - **`generation_model_promotion`** — generation model evaluation + automated promotion
@@ -110,7 +119,8 @@ rag_pipeline/
 │           ├── get_job_ids.py
 │           ├── interview_state.py
 │           ├── iterative_retrieval.py
-│           └── production_configurations.py
+│           ├── production_configurations.py
+│           └── search_terms.py
 ├── databricks_jobs/
 │   ├── job_abstract_to_chunks.py
 │   ├── job_chunks_to_embeddings.py
@@ -153,10 +163,10 @@ rag_pipeline/
 ## Data Pipeline (Detailed)
 
 ### 1. Ingestion
-PubMed's E-utilities API is queried for a configurable search term (e.g. "Viral Vectors"). Article metadata and abstracts are written to `bronze.abstracts` and `bronze.pubmed_meta` as managed Delta tables in Unity Catalog.
+PubMed's E-utilities API is queried for the next active search term in the rotation (e.g. "Viral Vectors"), bounded to a date window derived from that term's watermark. Searched PMIDs are deduplicated against a `pmid_registry` table before fetching article details, so only genuinely new articles are downloaded. Article metadata and abstracts are merged into `bronze.abstracts` and `bronze.pubmed_meta` as managed Delta tables in Unity Catalog, and the registry is updated to reflect the newly-ingested PMIDs.
 
 ### 2. Chunking
-A Databricks Spark job reads `bronze.abstracts`, splits abstracts into overlapping text chunks using LangChain's `RecursiveCharacterTextSplitter` and writes chunk-level records to `silver.chunks`. Uses Pandas UDFs for efficient distributed processing.
+A Databricks Spark job reads `bronze.abstracts`, filters to only PMIDs not already present in `silver.chunks`, splits those abstracts into overlapping text chunks using LangChain's `RecursiveCharacterTextSplitter`, and appends chunk-level records to `silver.chunks`. Uses Pandas UDFs for efficient distributed processing.
 
 ### 3. Embedding
 A configurable Sentence Transformers model from `production_config` encodes each chunk into a dense vector. Models are cached to a Databricks Volume to avoid re-downloading across runs. Outputs are written to `silver.embeddings` with Change Data Feed enabled for Vector Search sync.
@@ -235,6 +245,25 @@ airflow variables set generation_model_name "google/flan-t5-base"
 airflow variables set generation_model_score "0"
 ```
 
+### Managing the Search Term Rotation
+```bash
+# Seed the search_terms table with defaults (idempotent)
+python airflow/dags/util/search_terms.py
+
+# Add a new term to the rotation (runs next, since it starts unrun)
+python airflow/dags/util/search_terms.py add "Lipid Nanoparticles"
+
+# Pause / resume a term without losing its history
+python airflow/dags/util/search_terms.py pause "mRNA Stability"
+python airflow/dags/util/search_terms.py resume "mRNA Stability"
+```
+
+Backfill pace and DAG schedule are tunable via Airflow Variables without redeploying:
+```bash
+airflow variables set backfill_increment_days "30"        # tighter backfill window per run
+airflow variables set ingest_and_chunk_schedule "@daily"   # run more frequently while backfilling
+```
+
 ### Run
 ```bash
 # Start Airflow
@@ -256,5 +285,3 @@ airflow dags trigger dag_ingest_and_chunk
 - **NLP/ML** — embedding models, vector search, RAG architecture, LLM-as-judge evaluation
 - **Cloud** — Databricks jobs, serverless compute, Volumes, Vector Search endpoints
 - **Software engineering** — modular Python, argparse CLI, configurable pipelines, version-controlled jobs-as-code
-
-
