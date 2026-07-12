@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-export AIRFLOW_HOME=~/rag_pipeline/airflow
-echo 'export AIRFLOW_HOME=~/rag_pipeline/airflow' >> ~/.bashrc
+export AIRFLOW_HOME=~/pubmed_rag_pipeline/airflow
+echo 'export AIRFLOW_HOME=~/pubmed_rag_pipeline/airflow' >> ~/.bashrc
 source ~/.bashrc
 
 
@@ -37,7 +37,7 @@ airflow variables set databricks_token "$DATABRICKS_TOKEN"
 
 echo "checking for production table"
 EXIT_CODE=0
-uv run "$HOME/rag_pipeline/airflow/dags/util/production_configurations.py" || EXIT_CODE=$?
+uv run "$HOME/pubmed_rag_pipeline/airflow/dags/util/production_configurations.py" || EXIT_CODE=$?
 
 # Only set Airflow variables if the python script exited with 0 (table did not exist/was empty)
 if [ $EXIT_CODE -eq 0 ]; then
@@ -58,10 +58,13 @@ else
 fi
 
 echo "checking for History table"
-uv run "$HOME/rag_pipeline/airflow/dags/util/conversation_history.py" 
+uv run "$HOME/pubmed_rag_pipeline/airflow/dags/util/conversation_history.py" 
 
 echo "checking for interview state table"
-uv run "$HOME/rag_pipeline/airflow/dags/util/interview_state.py" 
+uv run "$HOME/pubmed_rag_pipeline/airflow/dags/util/interview_state.py" 
+
+echo "checking for search terms table"
+uv run "$HOME/pubmed_rag_pipeline/airflow/dags/util/search_terms.py" 
 
 echo "Setup complete. Starting Airflow."
 airflow standalone

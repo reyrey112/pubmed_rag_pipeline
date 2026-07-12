@@ -12,7 +12,7 @@ def create_job():
                 task_key="ingest_abstracts",
                 spark_python_task=jobs.SparkPythonTask(
                     python_file="/Workspace/Users/reydencdavies@gmail.com/rag_pipeline/databricks_notebooks/pubmed_to_databricks.py",
-                    parameters=["--query", "Viral Vectors", "--max-results", "50000"],
+                    parameters=["--query", "Viral Vectors", "--max-results", "5000"],
                 ),
                 environment_key="Serverless",
             )
