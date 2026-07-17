@@ -34,7 +34,7 @@ Databricks Unity Catalog — silver.embeddings
     ↓
 Databricks Vector Search index
     ↓
-Generation model  + Gradio chat UI
+Generation model  + Streamlit chat UI
 ```
 
 All jobs are orchestrated by **Apache Airflow**.
@@ -54,7 +54,7 @@ All jobs are orchestrated by **Apache Airflow**.
 | Generation models | HuggingFace Transformers (flan-t5) |
 | Experiment tracking | MLflow |
 | Evaluation/judging | Gemini (Google API) |
-| Interactive UI | Gradio |
+| Interactive UI | Streamlit |
 | Language | Python |
 
 ---
